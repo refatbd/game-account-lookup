@@ -1,0 +1,12 @@
+{
+  "name": "game-account-lookup-browser-helper",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lookup:codashop": "node scripts/codashop-browser-lookup.mjs",
+    "lookup:midasbuy": "node scripts/midasbuy-browser-lookup.mjs"
+  }
+}

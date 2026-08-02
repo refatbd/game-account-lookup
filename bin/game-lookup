@@ -1,0 +1,51 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoloadCandidates = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+$autoloaded = false;
+foreach ($autoloadCandidates as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        $autoloaded = true;
+        break;
+    }
+}
+
+if (!$autoloaded) {
+    fwrite(STDERR, "Composer autoload file not found. Run: composer install\n");
+    exit(1);
+}
+
+use Refatbd\GameAccountLookup\GameAccountLookup;
+
+$args = array_values(array_slice($argv, 1));
+$debug = in_array('--debug', $args, true);
+$args = array_values(array_filter($args, static fn (string $arg): bool => $arg !== '--debug'));
+
+if (($args[0] ?? '') === 'list') {
+    $lookup = GameAccountLookup::make();
+    echo json_encode($lookup->registry()->list(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+    exit(0);
+}
+
+if (count($args) < 2) {
+    fwrite(STDERR, "Usage:\n");
+    fwrite(STDERR, "  game-lookup list\n");
+    fwrite(STDERR, "  game-lookup <game> <player-id> [zone-id] [--debug]\n");
+    exit(1);
+}
+
+[$game, $playerId] = $args;
+$zoneId = $args[2] ?? null;
+
+$result = GameAccountLookup::make(['debug' => $debug])
+    ->check($game, $playerId, $zoneId);
+
+echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+exit($result->ok ? 0 : 2);
