@@ -7,12 +7,12 @@ namespace Refatbd\GameAccountLookup\Credentials;
 use InvalidArgumentException;
 
 /** Server-side credential group for one provider. */
-final readonly class ProviderCredential
+final class ProviderCredential
 {
     /** @param array<string, string> $values */
     public function __construct(
-        public string $provider,
-        private array $values,
+        public readonly string $provider,
+        private readonly array $values,
     ) {
         if ($provider === '') {
             throw new InvalidArgumentException('Credential provider cannot be empty.');
