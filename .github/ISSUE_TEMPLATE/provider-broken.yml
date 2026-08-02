@@ -1,0 +1,56 @@
+name: Provider lookup broken
+about: Report a provider response or parser regression without sharing secrets.
+title: "[Provider] "
+labels: ["provider", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove cookies, tokens, personal data and full private identifiers before submitting.
+  - type: input
+    id: game
+    attributes:
+      label: Game code
+      placeholder: freefire
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider key
+      placeholder: gopaygames or codashop
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package/PHP version
+      placeholder: v0.2.0 / PHP 8.3
+    validations:
+      required: true
+  - type: dropdown
+    id: behavior
+    attributes:
+      label: Failure type
+      options:
+        - All valid IDs fail
+        - Invalid IDs appear valid
+        - Nickname path changed
+        - HTTP/network restriction
+        - Rate limiting
+        - Unexpected/non-JSON response
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: sanitized
+    attributes:
+      label: Sanitized response shape and steps
+      description: Replace identifiers and sensitive values. Include status code and JSON keys where safe.
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Request region/date
+      placeholder: Bangladesh, 2026-07-28

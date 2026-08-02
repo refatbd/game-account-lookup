@@ -1,0 +1,17 @@
+/vendor/
+/node_modules/
+/.phpunit.cache/
+/.phpunit.result.cache
+/.idea/
+/.vscode/
+.env
+composer.lock
+coverage/
+/template/storage/rate-limits/*.json
+/template/storage/codashop-browser-profile/
+/template/storage/midasbuy-browser-profile/
+/template/storage/cache/
+*.log
+*.zip
+.DS_Store
+Thumbs.db

@@ -1,0 +1,39 @@
+name: Add or update a game
+about: Propose a supported game or provider metadata update.
+title: "[Game] "
+labels: ["game-definition", "enhancement"]
+body:
+  - type: input
+    id: game
+    attributes:
+      label: Game name
+    validations:
+      required: true
+  - type: input
+    id: code
+    attributes:
+      label: Suggested canonical code
+      placeholder: examplegame
+    validations:
+      required: true
+  - type: dropdown
+    id: zone
+    attributes:
+      label: Does it require a zone/server?
+      options: ["No", "Yes", "Unknown"]
+    validations:
+      required: true
+  - type: textarea
+    id: provider
+    attributes:
+      label: Authorized/public validation source
+      description: Describe the provider and public account-validation flow. Do not include credentials or tokens.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Provide public documentation or sanitized request/response field names.
+    validations:
+      required: true
