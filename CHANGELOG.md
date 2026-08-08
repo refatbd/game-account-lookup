@@ -5,13 +5,32 @@ All notable changes will be documented in this file.
 The format follows Keep a Changelog and the project intends to use Semantic
 Versioning.
 
-## [Unreleased]
+## [1.0.2]
 
 ### Added
 
 - Centralized Garena and Midasbuy credentials behind bundled, environment, and
   chained credential providers, with environment-first resolution and a single
   canonical bundled credential class.
+- Domain-scoped in-memory cookies in the shared HTTP client.
+- Login-page preflight and one rotated-cookie retry for the direct Garena and
+  Midasbuy providers.
+- Sanitized `GAME_LOOKUP_GARENA_USER_AGENT` and
+  `GAME_LOOKUP_MIDASBUY_USER_AGENT` environment overrides with compatible
+  fallbacks.
+
+### Changed
+
+- Garena now uses server-issued Shop2Game cookies by default instead of a
+  bundled static DataDome cookie/client ID.
+- Midasbuy now preserves server-issued cookies around its existing encrypted
+  `getCharac` request.
+
+### Security
+
+- Removed committed short-lived Garena cookies and DataDome client ID values.
+- Prevented cookies captured for one upstream host from being sent to another
+  provider domain.
 
 ## [0.7.0] - 2026-08-01
 

@@ -73,7 +73,8 @@ Do not use it to evade access controls or overload third-party services.
 - CLI utility
 - Standalone offline tests and PHPUnit tests
 - GitHub Actions matrix for PHP 8.1–8.4
-- Session-cookie continuity and runtime Codashop metadata discovery without committed short-lived JWT/SKU tokens
+- Domain-scoped session-cookie continuity for Garena, Midasbuy and Codashop without committed short-lived Garena/DataDome values
+- Configurable, sanitized Garena and Midasbuy User-Agent environment overrides
 - Official product-page evidence, provider availability states, and a non-destructive provider audit CLI
 
 ## Installation
@@ -511,21 +512,31 @@ session values may rotate:
 
 | Provider | Runtime | Rotating values | Maintenance guide |
 |---|---|---|---|
-| `garena` | PHP/cURL | Shop2Game cookies and matching DataDome client ID | [Garena session capture](docs/GARENA_SESSION_CAPTURE.md) |
-| `midasbuy` | PHP/cURL/OpenSSL | AES key/IV, `ctoken`, token version, and possibly request schema | [Midasbuy direct rotation](docs/MIDASBUY_DIRECT_SETUP.md) |
+| `garena` | PHP/cURL | Server-issued Shop2Game cookies; optional verified-session override | [Garena session capture](docs/GARENA_SESSION_CAPTURE.md) |
+| `midasbuy` | PHP/cURL/OpenSSL | Server-issued cookies plus AES key/IV, `ctoken`, token version, and possibly request schema | [Midasbuy direct rotation](docs/MIDASBUY_DIRECT_SETUP.md) |
 
-This private build keeps the currently captured Garena and Midasbuy values in
-one canonical `BundledCredentialProvider`, so the direct providers can work
-immediately while those upstream sessions remain valid. A credential chain
-checks complete environment overrides first and bundled values second. Garena
-uses
+Garena no longer contains a bundled DataDome cookie or client ID. It opens the
+Shop2Game login page, retains server-issued cookies for that domain, submits the
+lookup, and retries once when the response rotates the session cookie. Optional
+verified-session overrides remain available through
 `GAME_LOOKUP_GARENA_COOKIE` and
-`GAME_LOOKUP_GARENA_DATADOME_CLIENT_ID`. Midasbuy reads
+`GAME_LOOKUP_GARENA_DATADOME_CLIENT_ID`.
+
+Both direct providers support a sanitized User-Agent override without source
+editing:
+
+```dotenv
+GAME_LOOKUP_GARENA_USER_AGENT="your-approved-user-agent"
+GAME_LOOKUP_MIDASBUY_USER_AGENT="your-approved-user-agent"
+```
+
+Midasbuy still reads its compatible encryption credential group from
 `GAME_LOOKUP_MIDASBUY_ENCRYPTION_KEY`,
 `GAME_LOOKUP_MIDASBUY_ENCRYPTION_IV`,
 `GAME_LOOKUP_MIDASBUY_CTOKEN_VERSION`, and
-`GAME_LOOKUP_MIDASBUY_CTOKEN` for its override group. When values rotate, update
-the complete compatible set together and keep this repository private. See
+`GAME_LOOKUP_MIDASBUY_CTOKEN`. Those values are not HTTP cookies and cannot be
+refreshed through `Set-Cookie`; when they rotate, update the complete compatible
+set together. See
 [`docs/CREDENTIAL_MANAGEMENT.md`](docs/CREDENTIAL_MANAGEMENT.md).
 
 An expired or restricted direct session is a provider-level result, not a PHP

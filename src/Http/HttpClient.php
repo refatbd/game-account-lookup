@@ -8,7 +8,7 @@ use Refatbd\GameAccountLookup\Contracts\HttpClientInterface;
 
 final class HttpClient implements HttpClientInterface
 {
-    /** @var array<string, string> */
+    /** @var array<string, array<string, string>> */
     private array $cookies = [];
 
     /**
@@ -77,11 +77,13 @@ final class HttpClient implements HttpClientInterface
             return new HttpResponse(0, '', [], 'Unable to initialise cURL.', 0, $url);
         }
 
-        if ($this->cookies !== [] && !$this->hasHeader($headers, 'Cookie')) {
+        $cookieHost = strtolower((string) (parse_url($url, PHP_URL_HOST) ?? ''));
+        $hostCookies = $cookieHost !== '' ? ($this->cookies[$cookieHost] ?? []) : [];
+        if ($hostCookies !== [] && !$this->hasHeader($headers, 'Cookie')) {
             $headers['Cookie'] = implode('; ', array_map(
                 static fn (string $name, string $value): string => $name . '=' . $value,
-                array_keys($this->cookies),
-                array_values($this->cookies),
+                array_keys($hostCookies),
+                array_values($hostCookies),
             ));
         }
 
@@ -103,7 +105,7 @@ final class HttpClient implements HttpClientInterface
             CURLOPT_SSL_VERIFYHOST => $this->verifyTls ? 2 : 0,
             CURLOPT_HTTPHEADER => $headerLines,
             CURLOPT_ENCODING => '',
-            CURLOPT_HEADERFUNCTION => function ($curl, string $line) use (&$responseHeaders): int {
+            CURLOPT_HEADERFUNCTION => function ($curl, string $line) use (&$responseHeaders, $cookieHost): int {
                 $length = strlen($line);
                 $line = trim($line);
 
@@ -116,8 +118,8 @@ final class HttpClient implements HttpClientInterface
                 $value = trim($value);
                 $responseHeaders[$normalizedName][] = $value;
 
-                if ($normalizedName === 'set-cookie') {
-                    $this->rememberCookie($value);
+                if ($normalizedName === 'set-cookie' && $cookieHost !== '') {
+                    $this->rememberCookie($cookieHost, $value);
                 }
 
                 return $length;
@@ -166,7 +168,7 @@ final class HttpClient implements HttpClientInterface
         return false;
     }
 
-    private function rememberCookie(string $header): void
+    private function rememberCookie(string $host, string $header): void
     {
         $first = trim(explode(';', $header, 2)[0] ?? '');
         if ($first === '' || !str_contains($first, '=')) {
@@ -180,11 +182,14 @@ final class HttpClient implements HttpClientInterface
         }
 
         if ($value === '') {
-            unset($this->cookies[$name]);
+            unset($this->cookies[$host][$name]);
+            if (($this->cookies[$host] ?? []) === []) {
+                unset($this->cookies[$host]);
+            }
             return;
         }
 
-        $this->cookies[$name] = $value;
+        $this->cookies[$host][$name] = $value;
     }
 
     /**

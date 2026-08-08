@@ -92,10 +92,12 @@ notes. Enable Demo mode to test those definitions without a live provider.
 | `GAME_LOOKUP_TEMPLATE_TIMEOUT` | `12` | Provider request timeout |
 | `GAME_LOOKUP_GARENA_COOKIE` | empty | Optional Shop2Game cookie string when Garena requires DataDome verification |
 | `GAME_LOOKUP_GARENA_DATADOME_CLIENT_ID` | empty | Optional matching DataDome client ID; never expose it to frontend JSON |
+| `GAME_LOOKUP_GARENA_USER_AGENT` | compatible fallback | Optional sanitized User-Agent override for Garena requests |
 | `GAME_LOOKUP_MIDASBUY_ENCRYPTION_KEY` | empty | Required 64-hex-character AES key for direct Midasbuy lookup |
 | `GAME_LOOKUP_MIDASBUY_ENCRYPTION_IV` | `1234567890123456` | Matching 16-byte Midasbuy AES IV |
 | `GAME_LOOKUP_MIDASBUY_CTOKEN_VERSION` | `1.0.1` | Matching Midasbuy client-token version |
 | `GAME_LOOKUP_MIDASBUY_CTOKEN` | empty | Matching rotating Midasbuy client token |
+| `GAME_LOOKUP_MIDASBUY_USER_AGENT` | compatible fallback | Optional sanitized User-Agent override for Midasbuy requests |
 | `GAME_LOOKUP_TEMPLATE_CONNECT_TIMEOUT` | `5` | Connection timeout |
 | `GAME_LOOKUP_TEMPLATE_CACHE_TTL` | `300` | Successful lookup cache lifetime |
 | `GAME_LOOKUP_TEMPLATE_RATE_LIMIT` | `60` | Requests per local window |

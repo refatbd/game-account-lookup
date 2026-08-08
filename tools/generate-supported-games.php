@@ -106,7 +106,7 @@ foreach ($games as $game) {
     }
 }
 
-$table = implode(PHP_EOL, [
+$table = implode("\n", [
     '| Game | Code | Zone Required | Known Server Values | Codashop | GoPay | Other | Status | Aliases |',
     '|---|---|:---:|---|---|---|---|---|---|',
     ...$rows,
@@ -133,12 +133,13 @@ if ($readme === false) {
 }
 $start = '<!-- supported-games:start -->';
 $end = '<!-- supported-games:end -->';
-$replacement = $start . PHP_EOL . PHP_EOL . $summary . PHP_EOL . PHP_EOL . $table . PHP_EOL . PHP_EOL . $end;
+$replacement = $start . "\n\n" . $summary . "\n\n" . $table . "\n\n" . $end;
 $pattern = '/' . preg_quote($start, '/') . '.*?' . preg_quote($end, '/') . '/s';
 $updated = preg_replace($pattern, $replacement, $readme, 1, $count);
 if ($updated === null || $count !== 1) {
     throw new RuntimeException('README supported-game markers were not found exactly once.');
 }
+$updated = str_replace(["\r\n", "\r"], "\n", $updated);
 file_put_contents($readmePath, $updated);
 
 $docs = <<<MD
@@ -177,9 +178,9 @@ composer docs:games
 
 The catalog is a dated snapshot, not a permanent guarantee. Provider pages, SKU metadata, internal codes, regional restrictions and account-validation behavior can change without notice. Before publishing a release, run the provider audit tool and verify permitted valid/invalid test accounts. Never commit cookies, access tokens, personal account data or short-lived JWT values.
 MD;
-file_put_contents($root . '/docs/SUPPORTED_GAMES.md', $docs . PHP_EOL);
+file_put_contents($root . '/docs/SUPPORTED_GAMES.md', str_replace(["\r\n", "\r"], "\n", $docs) . "\n");
 
-$providerTable = implode(PHP_EOL, [
+$providerTable = implode("\n", [
     '| Game | Code | Provider | Audit state | Verified | Official evidence |',
     '|---|---|---|---|---|---|',
     ...$providerRows,
@@ -241,6 +242,6 @@ composer docs:games
 
 `--live` checks public product pages only. It does not submit a player ID or purchase. Review changes manually before editing `resources/provider-catalog.php`.
 MD;
-file_put_contents($root . '/docs/PROVIDER_AVAILABILITY.md', $availabilityDoc . PHP_EOL);
+file_put_contents($root . '/docs/PROVIDER_AVAILABILITY.md', str_replace(["\r\n", "\r"], "\n", $availabilityDoc) . "\n");
 
 echo sprintf("Generated provider-aware tables for %d games.\n", count($games));

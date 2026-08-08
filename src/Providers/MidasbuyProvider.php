@@ -11,14 +11,18 @@ use Refatbd\GameAccountLookup\Credentials\EnvironmentCredentialProvider;
 use Refatbd\GameAccountLookup\Contracts\HttpClientInterface;
 use Refatbd\GameAccountLookup\Contracts\ProviderInterface;
 use Refatbd\GameAccountLookup\DTO\LookupResult;
+use Refatbd\GameAccountLookup\Http\HttpResponse;
 use Refatbd\GameAccountLookup\ResultCode;
 use Refatbd\GameAccountLookup\Support\Arr;
 use Refatbd\GameAccountLookup\Support\Normalizer;
 use Refatbd\GameAccountLookup\Support\ProviderDiagnostics;
+use Refatbd\GameAccountLookup\Support\UserAgent;
 
 /** Direct HTTP implementation of the official Midasbuy xMidas request. */
 final class MidasbuyProvider implements ProviderInterface
 {
+    private const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36';
+
     private readonly CredentialProviderInterface $credentials;
 
     public function __construct(
@@ -51,6 +55,11 @@ final class MidasbuyProvider implements ProviderInterface
         $referer = (string) ($config['referer'] ?? 'https://www.midasbuy.com/common-sdk?id=playerid_enter&appid=1450015065&country=bd&removeIframeBeforeLoad=true&from=self.midasbuy_saas&lang=en&shopcode=midasbuy');
         $appId = (string) ($config['appId'] ?? '1450015065');
         $requestZoneId = (string) ($config['zoneId'] ?? '1');
+        $userAgent = UserAgent::resolve(
+            'GAME_LOOKUP_MIDASBUY_USER_AGENT',
+            self::DEFAULT_USER_AGENT,
+            $config['userAgent'] ?? null,
+        );
         $credential = $this->credentials->forProvider($this->key());
         $keyHex = trim((string) ($credential?->value('encryptionKey') ?? ''));
         $iv = (string) ($credential?->value('encryptionIv') ?? '');
@@ -91,18 +100,50 @@ final class MidasbuyProvider implements ProviderInterface
             'hostname' => 'www.midasbuy.com',
         ];
 
-        $response = $this->http->postJson($endpoint, $payload, [
+        $headers = [
             'Origin' => 'https://www.midasbuy.com',
             'Referer' => $referer,
-            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+            'User-Agent' => $userAgent,
+        ];
+
+        $this->http->get($referer, [
+            'Accept' => 'text/html,application/xhtml+xml',
+            'User-Agent' => $userAgent,
         ]);
+
+        $response = $this->http->postJson($endpoint, $payload, $headers);
+        $data = $response->json();
+        $sessionRetried = false;
+
+        if ($this->isChallenge($response, $data)) {
+            // Preserve any cookie rotated by the challenge and retry once.
+            $response = $this->http->postJson($endpoint, $payload, $headers);
+            $data = $response->json();
+            $sessionRetried = true;
+        }
+
         $meta = array_merge(ProviderDiagnostics::fromResponse($response, $this->debug), [
             'direct_http' => true,
             'browser_assisted' => false,
             'official_service' => 'Midasbuy getCharac',
             'encryption_session_configured' => true,
             'payload_generated_for_player' => true,
+            'managed_session' => true,
+            'session_retried' => $sessionRetried,
+            'user_agent_configurable' => true,
         ]);
+
+        if ($this->isChallenge($response, $data)) {
+            return LookupResult::failure(
+                ResultCode::PROVIDER_RESTRICTED,
+                'Midasbuy requires browser verification for this server. Trying the next provider is safe.',
+                $game['code'] ?? null,
+                $playerId,
+                $zoneId,
+                $this->key(),
+                $meta,
+            );
+        }
 
         if ($response->status === 429) {
             return LookupResult::failure(ResultCode::RATE_LIMITED, 'Midasbuy rate limit reached.', $game['code'] ?? null, $playerId, $zoneId, $this->key(), $meta);
@@ -111,7 +152,6 @@ final class MidasbuyProvider implements ProviderInterface
             return LookupResult::failure(ResultCode::NETWORK_ERROR, $response->error ?? sprintf('Midasbuy returned HTTP %d.', $response->status), $game['code'] ?? null, $playerId, $zoneId, $this->key(), $meta);
         }
 
-        $data = $response->json();
         if (!is_array($data)) {
             return LookupResult::failure(ResultCode::INVALID_RESPONSE, 'Midasbuy returned a non-JSON response.', $game['code'] ?? null, $playerId, $zoneId, $this->key(), $meta);
         }
@@ -148,5 +188,16 @@ final class MidasbuyProvider implements ProviderInterface
             $this->key(),
             $meta,
         );
+    }
+
+    private function isChallenge(HttpResponse $response, mixed $data): bool
+    {
+        $url = is_array($data) ? strtolower((string) ($data['url'] ?? '')) : '';
+        $body = strtolower($response->body);
+
+        return str_contains($url, 'captcha-delivery.com')
+            || str_contains($url, 'datadome')
+            || (($response->status === 403 || $response->status === 429)
+                && (str_contains($body, 'captcha-delivery.com') || str_contains($body, 'datadome')));
     }
 }

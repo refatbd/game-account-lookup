@@ -1,8 +1,13 @@
 # Garena Shop2Game session capture guide
 
-This guide explains how to capture the cookies and browser-generated request
-headers used by the `garena` provider. It uses a real Chrome or Edge session,
-with any verification completed manually. It does not generate, forge, or
+The `garena` provider normally needs no captured cookie. It opens the official
+Shop2Game login page, keeps server-issued cookies in a domain-scoped in-memory
+session, and retries once when a challenge response rotates the cookie. No
+short-lived Garena/DataDome value is bundled in source.
+
+This guide explains the optional recovery workflow when the normal managed
+session still requires human verification. It uses a real Chrome or Edge
+session with verification completed manually. It does not generate, forge, or
 bypass a DataDome challenge.
 
 ## What the provider needs
@@ -22,10 +27,9 @@ DataDome's official documentation says that `X-DataDome-ClientID` takes
 priority when present; otherwise the `datadome` cookie value is used as the
 client ID. See [DataDome Protection API — Identifying the ClientID](https://docs.datadome.co/reference/validate-request).
 
-Treat the entire cookie string as a credential. This single-owner build stores
-the current value for immediate private use; do not make the repository public,
-paste the value into issue reports, expose it in frontend JavaScript, or include
-it in application logs.
+Treat any manually captured cookie string as a credential. Store it only in
+server environment variables; do not commit it, paste it into issue reports,
+expose it in frontend JavaScript, or include it in application logs.
 
 ## 1. Create a valid browser session
 

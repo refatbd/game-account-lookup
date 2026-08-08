@@ -1,7 +1,9 @@
 # Credential management
 
-This private build requires rotating Garena and Midasbuy values for immediate
-direct lookup. They are intentionally retained in exactly one canonical class:
+Garena direct lookup now starts with a managed Shop2Game session and contains no
+bundled static cookie or DataDome client ID. Optional manually verified Garena
+values and the rotating Midasbuy encryption group are supplied server-side.
+Bundled Midasbuy compatibility values remain centralized in:
 
 ```text
 src/Credentials/BundledCredentialProvider.php
@@ -20,16 +22,18 @@ ChainCredentialProvider
       +-- BundledCredentialProvider (fallback)
 ```
 
-This preserves install-and-run behavior while allowing a server to rotate the
-complete credential group without editing source.
+This allows a server to rotate a complete Midasbuy credential group without
+editing source. Garena environment values are optional recovery overrides.
 
 ## Resolution order
 
-1. A complete environment group overrides the bundled group.
-2. If the environment group is missing or incomplete, the bundled group is
-   used.
-3. If neither provider returns a usable group, the adapter reports a normal
-   provider configuration failure and automatic fallback continues.
+1. Garena uses its managed server-issued cookie session by default.
+2. A complete Garena environment group is used only as an optional verified
+   session override.
+3. A complete Midasbuy environment group overrides its bundled compatibility
+   group.
+4. If Midasbuy has no usable group, the adapter reports a normal provider
+   configuration failure and automatic fallback continues.
 
 Environment groups are intentionally all-or-nothing. Mixing a token, cookie,
 key, or IV from different sessions is a common cause of upstream rejection.
@@ -41,6 +45,7 @@ Garena:
 ```dotenv
 GAME_LOOKUP_GARENA_COOKIE="COMPLETE_COOKIE_STRING"
 GAME_LOOKUP_GARENA_DATADOME_CLIENT_ID="MATCHING_CLIENT_ID"
+GAME_LOOKUP_GARENA_USER_AGENT="your-approved-user-agent"
 ```
 
 Midasbuy:
@@ -50,9 +55,11 @@ GAME_LOOKUP_MIDASBUY_ENCRYPTION_KEY="64_HEX_CHARACTER_KEY"
 GAME_LOOKUP_MIDASBUY_ENCRYPTION_IV="16_BYTE_IV_VALUE"
 GAME_LOOKUP_MIDASBUY_CTOKEN_VERSION="TOKEN_VERSION"
 GAME_LOOKUP_MIDASBUY_CTOKEN="MATCHING_CTOKEN"
+GAME_LOOKUP_MIDASBUY_USER_AGENT="your-approved-user-agent"
 ```
 
-All variables in a group must be present before that environment provider wins.
+Cookie/token groups remain all-or-nothing. User-Agent overrides are independent
+and are sanitized before use.
 
 ## Bundled credential rules
 

@@ -66,9 +66,10 @@ For a public repository, do not commit:
 - customer/account data;
 - short-lived dynamic SKU tokens.
 
-This private build deliberately bundles the current Garena and Midasbuy session
-set for single-owner use. Keep the repository private and replace the complete
-set together when it rotates.
+Garena uses a runtime-managed, domain-scoped cookie session and does not bundle
+a short-lived DataDome cookie or client ID. Midasbuy's request-encryption values
+remain centralized in the credential provider; override them through environment
+variables when the official integration rotates them.
 
 When a current page requires dynamic values, discover them at runtime or mark
 the definition for maintenance rather than committing a value that will expire.

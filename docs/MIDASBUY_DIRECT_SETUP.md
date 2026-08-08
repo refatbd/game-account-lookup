@@ -8,9 +8,11 @@ POST https://www.midasbuy.com/interface/getCharac
 ```
 
 It does not need Chrome, Node.js, Playwright, or a browser process at runtime.
-For every Player ID, PHP builds the plaintext JSON, encrypts it, and sends a
-fresh `encrypt_msg` to Midasbuy. This makes it suitable for shared hosting as
-long as PHP has OpenSSL and outbound HTTPS access.
+For every Player ID, PHP opens the configured Midasbuy page to establish normal
+domain-scoped cookies, builds the plaintext JSON, encrypts it, and sends a fresh
+`encrypt_msg`. A challenge that rotates the cookie is retried once. This makes
+it suitable for shared hosting as long as PHP has OpenSSL and outbound HTTPS
+access.
 
 The automatic PUBG Mobile provider order is:
 
@@ -226,6 +228,7 @@ GAME_LOOKUP_MIDASBUY_ENCRYPTION_KEY="64_HEX_CHARACTER_KEY"
 GAME_LOOKUP_MIDASBUY_ENCRYPTION_IV="16_BYTE_IV_VALUE"
 GAME_LOOKUP_MIDASBUY_CTOKEN_VERSION="CAPTURED_CTOKEN_VERSION"
 GAME_LOOKUP_MIDASBUY_CTOKEN="CAPTURED_CTOKEN"
+GAME_LOOKUP_MIDASBUY_USER_AGENT="your-approved-user-agent"
 ```
 
 ### PowerShell
@@ -235,6 +238,7 @@ $env:GAME_LOOKUP_MIDASBUY_ENCRYPTION_KEY = '64_HEX_CHARACTER_KEY'
 $env:GAME_LOOKUP_MIDASBUY_ENCRYPTION_IV = '16_BYTE_IV_VALUE'
 $env:GAME_LOOKUP_MIDASBUY_CTOKEN_VERSION = 'CAPTURED_CTOKEN_VERSION'
 $env:GAME_LOOKUP_MIDASBUY_CTOKEN = 'CAPTURED_CTOKEN'
+$env:GAME_LOOKUP_MIDASBUY_USER_AGENT = 'your-approved-user-agent'
 php -S 127.0.0.1:8765 -t template
 ```
 
@@ -245,6 +249,7 @@ export GAME_LOOKUP_MIDASBUY_ENCRYPTION_KEY='64_HEX_CHARACTER_KEY'
 export GAME_LOOKUP_MIDASBUY_ENCRYPTION_IV='16_BYTE_IV_VALUE'
 export GAME_LOOKUP_MIDASBUY_CTOKEN_VERSION='CAPTURED_CTOKEN_VERSION'
 export GAME_LOOKUP_MIDASBUY_CTOKEN='CAPTURED_CTOKEN'
+export GAME_LOOKUP_MIDASBUY_USER_AGENT='your-approved-user-agent'
 php -S 127.0.0.1:8765 -t template
 ```
 

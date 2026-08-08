@@ -36,14 +36,14 @@ final class GameAccountLookupTest extends TestCase
         self::assertSame('pubgmobile', (new GameRegistry())->resolve('pubgm'));
     }
 
-    public function testBundledCredentialsAreCentralizedOutsideGameRegistry(): void
+    public function testBundledCredentialsExcludeShortLivedGarenaSession(): void
     {
         $pubg = (new GameRegistry())->get('pubgmobile');
         $config = (array) ($pubg['providers']['midasbuy'] ?? []);
 
         self::assertArrayNotHasKey('encryptionKey', $config);
         self::assertArrayNotHasKey('ctoken', $config);
-        self::assertNotNull((new BundledCredentialProvider())->forProvider('garena'));
+        self::assertNull((new BundledCredentialProvider())->forProvider('garena'));
         self::assertNotNull((new BundledCredentialProvider())->forProvider('midasbuy'));
     }
 
@@ -147,15 +147,21 @@ final class GameAccountLookupTest extends TestCase
 
     public function testGarenaResponseIncludesCountry(): void
     {
-        $http = new FakeHttpClient(new HttpResponse(
-            200,
-            '{"nickname":"Test Survivor","region":"BD"}',
-            ['content-type' => ['application/json']],
-        ));
+        $http = new FakeHttpClient(
+            new HttpResponse(200, '<html>Shop2Game</html>'),
+            new HttpResponse(
+                200,
+                '{"nickname":"Test Survivor","region":"BD"}',
+                ['content-type' => ['application/json']],
+            ),
+        );
         $provider = new GarenaProvider($http);
         $game = [
             'code' => 'freefire',
-            'providers' => ['garena' => ['appId' => 100067]],
+            'providers' => ['garena' => [
+                'appId' => 100067,
+                'userAgent' => "Configured Agent\r\nInjected",
+            ]],
         ];
 
         $result = $provider->lookup($game, '4422076728');
@@ -165,16 +171,26 @@ final class GameAccountLookupTest extends TestCase
         self::assertSame('Test Survivor', $result->nickname);
         self::assertSame('BD', $result->country);
         self::assertSame('BD', $result->toArray()['country']);
-        self::assertSame('https://shop2game.com/api/auth/player_id_login', $http->requests[0]['url']);
+        self::assertSame('GET', $http->requests[0]['method']);
+        self::assertSame('https://shop2game.com/api/auth/player_id_login', $http->requests[1]['url']);
+        self::assertSame('Configured AgentInjected', $http->requests[1]['headers']['User-Agent']);
     }
 
     public function testGarenaChallengeFallsBackWithoutFatalError(): void
     {
-        $garenaHttp = new FakeHttpClient(new HttpResponse(
-            200,
-            '{"url":"https://geo.captcha-delivery.com/interstitial/example"}',
-            ['content-type' => ['application/json']],
-        ));
+        $garenaHttp = new FakeHttpClient(
+            new HttpResponse(200, '<html>Shop2Game</html>'),
+            new HttpResponse(
+                403,
+                '{"url":"https://geo.captcha-delivery.com/interstitial/example"}',
+                ['content-type' => ['application/json']],
+            ),
+            new HttpResponse(
+                403,
+                '{"url":"https://geo.captcha-delivery.com/interstitial/example"}',
+                ['content-type' => ['application/json']],
+            ),
+        );
         $fallback = new FakeProvider('fallback', static fn (array $game, string $id, ?string $zone): LookupResult =>
             LookupResult::success($game['code'], $id, 'Fallback Player', 'fallback', $zone)
         );
@@ -191,6 +207,7 @@ final class GameAccountLookupTest extends TestCase
         self::assertSame('Fallback Player', $result->nickname);
         self::assertSame(['garena', 'fallback'], array_column($result->attempts, 'provider'));
         self::assertSame(ResultCode::PROVIDER_RESTRICTED, $result->attempts[0]['code']);
+        self::assertTrue($result->attempts[0]['meta']['session_retried']);
     }
 
     public function testCodashopRoleResponseIsNormalized(): void
@@ -479,16 +496,19 @@ final class GameAccountLookupTest extends TestCase
 
     public function testMidasbuyDirectProviderUsesHttpWithoutBrowser(): void
     {
-        $http = new FakeHttpClient(new HttpResponse(200, json_encode([
-            'ret' => 0,
-            'info' => [
-                'zoneid' => '1',
-                'openid' => '62145991708902696',
-                'charac_name' => 'FACTOR%E4%B9%8412',
-                'active_country' => 'bd',
-                'is_ban' => false,
-            ],
-        ], JSON_UNESCAPED_UNICODE) ?: '{}'));
+        $http = new FakeHttpClient(
+            new HttpResponse(200, '<html>Midasbuy</html>'),
+            new HttpResponse(200, json_encode([
+                'ret' => 0,
+                'info' => [
+                    'zoneid' => '1',
+                    'openid' => '62145991708902696',
+                    'charac_name' => 'FACTOR%E4%B9%8412',
+                    'active_country' => 'bd',
+                    'is_ban' => false,
+                ],
+            ], JSON_UNESCAPED_UNICODE) ?: '{}'),
+        );
         $credentials = new class implements CredentialProviderInterface {
             public function forProvider(string $provider): ?ProviderCredential
             {
@@ -510,6 +530,7 @@ final class GameAccountLookupTest extends TestCase
                     'endpoint' => 'https://www.midasbuy.com/interface/getCharac',
                     'appId' => '1450015065',
                     'zoneId' => '1',
+                    'userAgent' => "Configured Midas Agent\r\nInjected",
                 ],
             ],
         ], '51204454144');
@@ -518,10 +539,13 @@ final class GameAccountLookupTest extends TestCase
         self::assertSame('FACTOR乄12', $result->nickname);
         self::assertSame('BD', $result->country);
         self::assertSame('midasbuy', $result->provider);
-        self::assertSame('POST_JSON', $http->requests[0]['method']);
-        self::assertSame('xdeETkZNH7JMYhHUfcL9pxCrsvi9ElW02HgY9679Yp27D6GHqO5etYhCJYeAXBJ+cGBofHQJ4eHnqYsIg2oRT0G1uphcieQyjrqV8ootMnw=', $http->requests[0]['payload']['encrypt_msg']);
+        self::assertSame('GET', $http->requests[0]['method']);
+        self::assertSame('POST_JSON', $http->requests[1]['method']);
+        self::assertSame('Configured Midas AgentInjected', $http->requests[1]['headers']['User-Agent']);
+        self::assertSame('xdeETkZNH7JMYhHUfcL9pxCrsvi9ElW02HgY9679Yp27D6GHqO5etYhCJYeAXBJ+cGBofHQJ4eHnqYsIg2oRT0G1uphcieQyjrqV8ootMnw=', $http->requests[1]['payload']['encrypt_msg']);
         self::assertTrue($result->meta['direct_http']);
         self::assertFalse($result->meta['browser_assisted']);
+        self::assertTrue($result->meta['managed_session']);
     }
 
 }

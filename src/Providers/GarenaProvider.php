@@ -4,21 +4,23 @@ declare(strict_types=1);
 
 namespace Refatbd\GameAccountLookup\Providers;
 
-use Refatbd\GameAccountLookup\Credentials\BundledCredentialProvider;
-use Refatbd\GameAccountLookup\Credentials\ChainCredentialProvider;
 use Refatbd\GameAccountLookup\Credentials\CredentialProviderInterface;
 use Refatbd\GameAccountLookup\Credentials\EnvironmentCredentialProvider;
 use Refatbd\GameAccountLookup\Contracts\HttpClientInterface;
 use Refatbd\GameAccountLookup\Contracts\ProviderInterface;
 use Refatbd\GameAccountLookup\DTO\LookupResult;
+use Refatbd\GameAccountLookup\Http\HttpResponse;
 use Refatbd\GameAccountLookup\ResultCode;
 use Refatbd\GameAccountLookup\Support\Arr;
 use Refatbd\GameAccountLookup\Support\Normalizer;
 use Refatbd\GameAccountLookup\Support\ProviderDiagnostics;
+use Refatbd\GameAccountLookup\Support\UserAgent;
 
 final class GarenaProvider implements ProviderInterface
 {
     private const ENDPOINT = 'https://shop2game.com/api/auth/player_id_login';
+    private const LOGIN_PAGE = 'https://shop2game.com/app/100067/idlogin';
+    private const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Linux; Android 11; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36';
 
     private readonly CredentialProviderInterface $credentials;
 
@@ -27,10 +29,7 @@ final class GarenaProvider implements ProviderInterface
         private readonly bool $debug = false,
         ?CredentialProviderInterface $credentials = null,
     ) {
-        $this->credentials = $credentials ?? new ChainCredentialProvider([
-            new EnvironmentCredentialProvider(),
-            new BundledCredentialProvider(),
-        ]);
+        $this->credentials = $credentials ?? new EnvironmentCredentialProvider();
     }
 
     public function key(): string
@@ -73,21 +72,34 @@ final class GarenaProvider implements ProviderInterface
         $credential = $this->credentials->forProvider($this->key());
         $cookie = trim((string) ($credential?->value('cookie') ?? ''));
         $dataDomeClientId = trim((string) ($credential?->value('dataDomeClientId') ?? ''));
+        $referer = (string) ($config['referer'] ?? self::LOGIN_PAGE);
+        $userAgent = UserAgent::resolve(
+            'GAME_LOOKUP_GARENA_USER_AGENT',
+            self::DEFAULT_USER_AGENT,
+            $config['userAgent'] ?? null,
+        );
         $headers = [
             'Accept' => 'application/json',
             'Accept-Language' => 'en-US,en;q=0.9',
             'Origin' => 'https://shop2game.com',
-            'Referer' => (string) ($config['referer'] ?? 'https://shop2game.com/app/100067/idlogin'),
-            'User-Agent' => 'Mozilla/5.0 (Linux; Android 11; Redmi Note 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36',
-            'sec-ch-ua' => '"Chromium";v="107", "Not=A?Brand";v="24"',
-            'sec-ch-ua-mobile' => '?1',
-            'sec-ch-ua-platform' => '"Android"',
+            'Referer' => $referer,
+            'User-Agent' => $userAgent,
         ];
+
+        // Establish normal Shop2Game cookies before the player request. The
+        // shared client keeps server-issued Set-Cookie updates by domain.
+        $this->http->get($referer, [
+            'Accept' => 'text/html,application/xhtml+xml',
+            'Accept-Language' => 'en-US,en;q=0.9',
+            'User-Agent' => $userAgent,
+        ]);
+
+        $requestHeaders = $headers;
         if ($cookie !== '') {
-            $headers['Cookie'] = $cookie;
+            $requestHeaders['Cookie'] = $cookie;
         }
         if ($dataDomeClientId !== '') {
-            $headers['x-datadome-clientid'] = $dataDomeClientId;
+            $requestHeaders['x-datadome-clientid'] = $dataDomeClientId;
         }
 
         $response = $this->http->postJson(
@@ -97,20 +109,41 @@ final class GarenaProvider implements ProviderInterface
                 'login_id' => $playerId,
                 'app_server_id' => (int) ($config['appServerId'] ?? 0),
             ],
-            $headers,
+            $requestHeaders,
         );
+        $data = $response->json();
+        $sessionRetried = false;
+
+        if ($this->isChallenge($response, $data)) {
+            // A challenge response can rotate the managed cookie. Retry once
+            // without stale explicit credentials so the new cookie is used.
+            $response = $this->http->postJson(
+                (string) ($config['endpoint'] ?? self::ENDPOINT),
+                [
+                    'app_id' => (int) ($config['appId'] ?? 100067),
+                    'login_id' => $playerId,
+                    'app_server_id' => (int) ($config['appServerId'] ?? 0),
+                ],
+                $headers,
+            );
+            $data = $response->json();
+            $sessionRetried = true;
+        }
+
         $meta = array_merge(ProviderDiagnostics::fromResponse($response, $response->failed()), [
             'official_service' => 'Garena Shop2Game',
             'country_source' => 'region',
             'challenge_credentials_configured' => $cookie !== '' || $dataDomeClientId !== '',
+            'managed_session' => true,
+            'session_retried' => $sessionRetried,
+            'user_agent_configurable' => true,
         ]);
 
         if ($response->status === 429) {
             return LookupResult::failure(ResultCode::RATE_LIMITED, 'Garena Shop2Game rate limit reached.', $game['code'] ?? null, $playerId, $zoneId, $this->key(), $meta);
         }
 
-        $data = $response->json();
-        if (is_array($data) && $this->isChallenge($data)) {
+        if ($this->isChallenge($response, $data)) {
             return LookupResult::failure(
                 ResultCode::PROVIDER_RESTRICTED,
                 'Garena Shop2Game requires browser verification for this server. Trying the next provider is safe.',
@@ -175,11 +208,14 @@ final class GarenaProvider implements ProviderInterface
         );
     }
 
-    /** @param array<string, mixed> $data */
-    private function isChallenge(array $data): bool
+    private function isChallenge(HttpResponse $response, mixed $data): bool
     {
-        $url = strtolower((string) ($data['url'] ?? ''));
+        $url = is_array($data) ? strtolower((string) ($data['url'] ?? '')) : '';
+        $body = strtolower($response->body);
 
-        return str_contains($url, 'captcha-delivery.com') || str_contains($url, 'datadome');
+        return str_contains($url, 'captcha-delivery.com')
+            || str_contains($url, 'datadome')
+            || (($response->status === 403 || $response->status === 429)
+                && (str_contains($body, 'captcha-delivery.com') || str_contains($body, 'datadome')));
     }
 }
