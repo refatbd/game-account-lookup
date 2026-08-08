@@ -8,6 +8,7 @@ use Refatbd\GameAccountLookup\Credentials\CredentialProviderInterface;
 use Refatbd\GameAccountLookup\Credentials\EnvironmentCredentialProvider;
 use Refatbd\GameAccountLookup\Contracts\HttpClientInterface;
 use Refatbd\GameAccountLookup\Contracts\ProviderInterface;
+use Refatbd\GameAccountLookup\Contracts\SessionAwareHttpClientInterface;
 use Refatbd\GameAccountLookup\DTO\LookupResult;
 use Refatbd\GameAccountLookup\Http\HttpResponse;
 use Refatbd\GameAccountLookup\ResultCode;
@@ -86,13 +87,19 @@ final class GarenaProvider implements ProviderInterface
             'User-Agent' => $userAgent,
         ];
 
-        // Establish normal Shop2Game cookies before the player request. The
-        // shared client keeps server-issued Set-Cookie updates by domain.
-        $this->http->get($referer, [
+        $sessionAware = $this->http instanceof SessionAwareHttpClientInterface;
+        $preflightSkipped = $sessionAware && $this->http->hasWarmSession($referer);
+        $preflightHeaders = [
             'Accept' => 'text/html,application/xhtml+xml',
             'Accept-Language' => 'en-US,en;q=0.9',
             'User-Agent' => $userAgent,
-        ]);
+        ];
+
+        // A persisted, verified session lets later unique UIDs go straight to
+        // the player endpoint. Cold sessions retain the normal page preflight.
+        if (!$preflightSkipped) {
+            $this->http->get($referer, $preflightHeaders);
+        }
 
         $requestHeaders = $headers;
         if ($cookie !== '') {
@@ -115,6 +122,13 @@ final class GarenaProvider implements ProviderInterface
         $sessionRetried = false;
 
         if ($this->isChallenge($response, $data)) {
+            if ($preflightSkipped) {
+                // The cached session became stale. Restore the complete cold
+                // flow before retrying so latency improves without weakening
+                // provider reliability.
+                $this->http->get($referer, $preflightHeaders);
+            }
+
             // A challenge response can rotate the managed cookie. Retry once
             // without stale explicit credentials so the new cookie is used.
             $response = $this->http->postJson(
@@ -128,6 +142,29 @@ final class GarenaProvider implements ProviderInterface
             );
             $data = $response->json();
             $sessionRetried = true;
+
+            // A stale cached session may need the same one extra rotated-cookie
+            // retry used by a cold session after its preflight.
+            if ($preflightSkipped && $this->isChallenge($response, $data)) {
+                $response = $this->http->postJson(
+                    (string) ($config['endpoint'] ?? self::ENDPOINT),
+                    [
+                        'app_id' => (int) ($config['appId'] ?? 100067),
+                        'login_id' => $playerId,
+                        'app_server_id' => (int) ($config['appServerId'] ?? 0),
+                    ],
+                    $headers,
+                );
+                $data = $response->json();
+            }
+        }
+
+        if ($sessionAware) {
+            if ($this->isChallenge($response, $data)) {
+                $this->http->forgetSession($referer);
+            } elseif ($response->successful()) {
+                $this->http->markSessionWarm($referer);
+            }
         }
 
         $meta = array_merge(ProviderDiagnostics::fromResponse($response, $response->failed()), [
@@ -135,6 +172,7 @@ final class GarenaProvider implements ProviderInterface
             'country_source' => 'region',
             'challenge_credentials_configured' => $cookie !== '' || $dataDomeClientId !== '',
             'managed_session' => true,
+            'preflight_skipped' => $preflightSkipped,
             'session_retried' => $sessionRetried,
             'user_agent_configurable' => true,
         ]);

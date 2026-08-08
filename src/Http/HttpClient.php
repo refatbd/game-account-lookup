@@ -4,21 +4,35 @@ declare(strict_types=1);
 
 namespace Refatbd\GameAccountLookup\Http;
 
+use Refatbd\GameAccountLookup\Contracts\CacheInterface;
 use Refatbd\GameAccountLookup\Contracts\HttpClientInterface;
+use Refatbd\GameAccountLookup\Contracts\SessionAwareHttpClientInterface;
 
-final class HttpClient implements HttpClientInterface
+final class HttpClient implements HttpClientInterface, SessionAwareHttpClientInterface
 {
     /** @var array<string, array<string, string>> */
     private array $cookies = [];
 
+    /** @var array<string, bool> */
+    private array $warmSessions = [];
+
+    /** @var array<string, bool> */
+    private array $loadedHosts = [];
+
+    private mixed $curlHandle = null;
+
     /**
      * @param callable(string, array<string, mixed>): void|null $logger
+     * @param callable(string, string, array<string, string>, ?string): HttpResponse|null $transport
      */
     public function __construct(
         private readonly int $timeout = 12,
         private readonly int $connectTimeout = 5,
         private readonly bool $verifyTls = true,
         private readonly mixed $logger = null,
+        private readonly ?CacheInterface $sessionCache = null,
+        private readonly int $sessionTtl = 1800,
+        private readonly mixed $transport = null,
     ) {
     }
 
@@ -63,7 +77,42 @@ final class HttpClient implements HttpClientInterface
      */
     public function clearCookies(): void
     {
+        // Clear this client's active jar without destroying verified sessions
+        // persisted for later package instances. Keeping loadedHosts prevents a
+        // same-request profile reset from immediately reloading those cookies.
         $this->cookies = [];
+        $this->warmSessions = [];
+    }
+
+    public function hasWarmSession(string $url): bool
+    {
+        $host = $this->host($url);
+        $this->loadSession($host);
+
+        return $host !== '' && ($this->warmSessions[$host] ?? false) && ($this->cookies[$host] ?? []) !== [];
+    }
+
+    public function markSessionWarm(string $url): void
+    {
+        $host = $this->host($url);
+        $this->loadSession($host);
+        if ($host === '' || ($this->cookies[$host] ?? []) === []) {
+            return;
+        }
+
+        $this->warmSessions[$host] = true;
+        $this->persistSession($host);
+    }
+
+    public function forgetSession(string $url): void
+    {
+        $host = $this->host($url);
+        if ($host === '') {
+            return;
+        }
+
+        unset($this->cookies[$host], $this->warmSessions[$host], $this->loadedHosts[$host]);
+        $this->sessionCache?->forget($this->sessionCacheKey($host));
     }
 
     /**
@@ -71,13 +120,8 @@ final class HttpClient implements HttpClientInterface
      */
     private function request(string $method, string $url, array $headers, ?string $body = null): HttpResponse
     {
-        $ch = curl_init();
-
-        if ($ch === false) {
-            return new HttpResponse(0, '', [], 'Unable to initialise cURL.', 0, $url);
-        }
-
-        $cookieHost = strtolower((string) (parse_url($url, PHP_URL_HOST) ?? ''));
+        $cookieHost = $this->host($url);
+        $this->loadSession($cookieHost);
         $hostCookies = $cookieHost !== '' ? ($this->cookies[$cookieHost] ?? []) : [];
         if ($hostCookies !== [] && !$this->hasHeader($headers, 'Cookie')) {
             $headers['Cookie'] = implode('; ', array_map(
@@ -87,13 +131,29 @@ final class HttpClient implements HttpClientInterface
             ));
         }
 
+        if (is_callable($this->transport)) {
+            $response = ($this->transport)($method, $url, $headers, $body);
+            foreach ((array) ($response->headers['set-cookie'] ?? []) as $cookie) {
+                $this->rememberCookie($cookieHost, (string) $cookie);
+            }
+            $this->persistSession($cookieHost);
+
+            return $response;
+        }
+
+        $this->curlHandle ??= curl_init();
+        if ($this->curlHandle === false) {
+            return new HttpResponse(0, '', [], 'Unable to initialise cURL.', 0, $url);
+        }
+        curl_reset($this->curlHandle);
+
         $responseHeaders = [];
         $headerLines = [];
         foreach ($headers as $name => $value) {
             $headerLines[] = $name . ': ' . $value;
         }
 
-        curl_setopt_array($ch, [
+        curl_setopt_array($this->curlHandle, [
             CURLOPT_URL => $url,
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_RETURNTRANSFER => true,
@@ -127,16 +187,16 @@ final class HttpClient implements HttpClientInterface
         ]);
 
         if ($body !== null) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+            curl_setopt($this->curlHandle, CURLOPT_POSTFIELDS, $body);
         }
 
         $started = microtime(true);
-        $responseBody = curl_exec($ch);
-        $error = curl_error($ch) ?: null;
-        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        $responseBody = curl_exec($this->curlHandle);
+        $error = curl_error($this->curlHandle) ?: null;
+        $status = (int) curl_getinfo($this->curlHandle, CURLINFO_RESPONSE_CODE);
+        $effectiveUrl = (string) curl_getinfo($this->curlHandle, CURLINFO_EFFECTIVE_URL);
         $durationMs = (int) round((microtime(true) - $started) * 1000);
-        curl_close($ch);
+        $this->persistSession($cookieHost);
 
         $this->log('http.request', [
             'method' => $method,
@@ -190,6 +250,50 @@ final class HttpClient implements HttpClientInterface
         }
 
         $this->cookies[$host][$name] = $value;
+    }
+
+    private function loadSession(string $host): void
+    {
+        if ($host === '' || isset($this->loadedHosts[$host])) {
+            return;
+        }
+
+        $this->loadedHosts[$host] = true;
+        $session = $this->sessionCache?->get($this->sessionCacheKey($host));
+        if (!is_array($session)) {
+            return;
+        }
+
+        $cookies = $session['cookies'] ?? null;
+        if (is_array($cookies)) {
+            $this->cookies[$host] = array_filter(
+                array_map('strval', $cookies),
+                static fn (string $value): bool => $value !== '',
+            );
+        }
+        $this->warmSessions[$host] = (bool) ($session['warm'] ?? false);
+    }
+
+    private function persistSession(string $host): void
+    {
+        if ($host === '' || $this->sessionCache === null || ($this->cookies[$host] ?? []) === []) {
+            return;
+        }
+
+        $this->sessionCache->put($this->sessionCacheKey($host), [
+            'cookies' => $this->cookies[$host],
+            'warm' => (bool) ($this->warmSessions[$host] ?? false),
+        ], max(60, $this->sessionTtl));
+    }
+
+    private function host(string $url): string
+    {
+        return strtolower((string) (parse_url($url, PHP_URL_HOST) ?? ''));
+    }
+
+    private function sessionCacheKey(string $host): string
+    {
+        return 'game-account-lookup:http-session:'.hash('sha256', $host);
     }
 
     /**

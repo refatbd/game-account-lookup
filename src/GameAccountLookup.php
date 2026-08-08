@@ -47,6 +47,8 @@ final class GameAccountLookup
      *   debug?: bool,
      *   cache?: CacheInterface,
      *   cache_ttl?: int,
+     *   session_cache?: CacheInterface,
+     *   session_ttl?: int,
      *   logger?: callable(string, array<string, mixed>): void
      * } $options
      */
@@ -58,6 +60,8 @@ final class GameAccountLookup
             connectTimeout: (int) ($options['connect_timeout'] ?? 5),
             verifyTls: (bool) ($options['verify_tls'] ?? true),
             logger: $options['logger'] ?? null,
+            sessionCache: $options['session_cache'] ?? ($options['cache'] ?? null),
+            sessionTtl: (int) ($options['session_ttl'] ?? 1800),
         );
 
         $instance = new self(

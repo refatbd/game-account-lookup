@@ -167,6 +167,7 @@ use Refatbd\GameAccountLookup\GameAccountLookup;
 $lookup = GameAccountLookup::make([
     'cache' => new ArrayCache(),
     'cache_ttl' => 300,
+    'session_ttl' => 1800,
 ]);
 
 $result = $lookup->check('freefire', '4422076728');
@@ -178,7 +179,10 @@ echo json_encode(
 ```
 
 `GameAccountLookup::make()` also accepts HTTP timeouts, TLS verification,
-debugging, caching and a transport logger. See the complete
+debugging, result/session caching and a transport logger. When the supplied
+cache persists across instances, verified Garena cookies can be reused for
+later unique UIDs; stale sessions automatically fall back to the full preflight
+and retry flow. See the complete
 [API reference](docs/API_REFERENCE.md).
 
 Zone/server games accept a third argument:
@@ -521,6 +525,12 @@ lookup, and retries once when the response rotates the session cookie. Optional
 verified-session overrides remain available through
 `GAME_LOOKUP_GARENA_COOKIE` and
 `GAME_LOOKUP_GARENA_DATADOME_CLIENT_ID`.
+
+With a persistent `CacheInterface` (Laravel cache, Redis, database, Memcached,
+or another application adapter), a verified Shop2Game session is retained for
+`GAME_LOOKUP_SESSION_TTL` seconds. Later unique UIDs skip the redundant login
+page request. If Shop2Game rejects the cached session, the provider restores the
+full preflight and rotated-cookie retry before allowing normal fallback.
 
 Both direct providers support a sanitized User-Agent override without source
 editing:

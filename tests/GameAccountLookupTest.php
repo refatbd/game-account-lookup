@@ -12,6 +12,7 @@ use Refatbd\GameAccountLookup\Credentials\CredentialProviderInterface;
 use Refatbd\GameAccountLookup\Credentials\ProviderCredential;
 use Refatbd\GameAccountLookup\DTO\LookupResult;
 use Refatbd\GameAccountLookup\GameAccountLookup;
+use Refatbd\GameAccountLookup\Http\HttpClient;
 use Refatbd\GameAccountLookup\Http\HttpResponse;
 use Refatbd\GameAccountLookup\Providers\CodashopDynamicProvider;
 use Refatbd\GameAccountLookup\Providers\CodashopBrowserProvider;
@@ -208,6 +209,85 @@ final class GameAccountLookupTest extends TestCase
         self::assertSame(['garena', 'fallback'], array_column($result->attempts, 'provider'));
         self::assertSame(ResultCode::PROVIDER_RESTRICTED, $result->attempts[0]['code']);
         self::assertTrue($result->attempts[0]['meta']['session_retried']);
+    }
+
+    public function testGarenaWarmSessionSkipsPreflightForANewUid(): void
+    {
+        $http = new FakeHttpClient(new HttpResponse(
+            200,
+            '{"nickname":"Warm Player","region":"BD"}',
+            ['content-type' => ['application/json']],
+        ));
+        $http->warmSession = true;
+
+        $result = (new GarenaProvider($http))->lookup([
+            'code' => 'freefire',
+            'providers' => ['garena' => ['appId' => 100067]],
+        ], '4641089868');
+
+        self::assertTrue($result->ok);
+        self::assertCount(1, $http->requests);
+        self::assertSame('POST_JSON', $http->requests[0]['method']);
+        self::assertTrue($result->meta['preflight_skipped']);
+        self::assertFalse($result->meta['session_retried']);
+    }
+
+    public function testGarenaStaleWarmSessionRestoresColdFlow(): void
+    {
+        $challenge = new HttpResponse(
+            403,
+            '{"url":"https://geo.captcha-delivery.com/interstitial/example"}',
+            ['content-type' => ['application/json']],
+        );
+        $http = new FakeHttpClient(
+            $challenge,
+            new HttpResponse(200, '<html>Shop2Game</html>'),
+            $challenge,
+            new HttpResponse(200, '{"nickname":"Recovered Player","region":"BD"}'),
+        );
+        $http->warmSession = true;
+
+        $result = (new GarenaProvider($http))->lookup([
+            'code' => 'freefire',
+            'providers' => ['garena' => ['appId' => 100067]],
+        ], '4641089868');
+
+        self::assertTrue($result->ok);
+        self::assertSame(['POST_JSON', 'GET', 'POST_JSON', 'POST_JSON'], array_column($http->requests, 'method'));
+        self::assertTrue($result->meta['preflight_skipped']);
+        self::assertTrue($result->meta['session_retried']);
+        self::assertTrue($http->warmSession);
+    }
+
+    public function testHttpClientPersistsDomainScopedWarmSession(): void
+    {
+        $cache = new ArrayCache();
+        $firstTransport = static fn (string $method, string $url): HttpResponse => new HttpResponse(
+            200,
+            '{}',
+            ['set-cookie' => ['session_id=ready; Path=/']],
+            null,
+            20,
+            $url,
+        );
+        $first = new HttpClient(sessionCache: $cache, transport: $firstTransport);
+        $first->get('https://shop2game.com/login');
+        $first->markSessionWarm('https://shop2game.com/login');
+        $first->clearCookies();
+        self::assertFalse($first->hasWarmSession('https://shop2game.com/login'));
+
+        $seenHeaders = [];
+        $secondTransport = static function (string $method, string $url, array $headers) use (&$seenHeaders): HttpResponse {
+            $seenHeaders = $headers;
+
+            return new HttpResponse(200, '{}', [], null, 20, $url);
+        };
+        $second = new HttpClient(sessionCache: $cache, transport: $secondTransport);
+
+        self::assertTrue($second->hasWarmSession('https://shop2game.com/login'));
+        $second->get('https://shop2game.com/api');
+        self::assertSame('session_id=ready', $seenHeaders['Cookie']);
+        self::assertFalse($second->hasWarmSession('https://example.com'));
     }
 
     public function testCodashopRoleResponseIsNormalized(): void

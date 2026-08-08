@@ -38,6 +38,8 @@ final class GameAccountLookupServiceProvider extends ServiceProvider
                 'debug' => (bool) ($config['debug'] ?? false),
                 'cache' => $cache,
                 'cache_ttl' => (int) ($cacheConfig['ttl'] ?? 300),
+                'session_cache' => $cache,
+                'session_ttl' => (int) ($config['session_ttl'] ?? 1800),
                 'logger' => static function (string $event, array $context) use ($app): void {
                     if ((bool) $app['config']->get('game-account-lookup.debug', false)) {
                         $app['log']->debug($event, $context);

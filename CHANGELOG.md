@@ -5,6 +5,33 @@ All notable changes will be documented in this file.
 The format follows Keep a Changelog and the project intends to use Semantic
 Versioning.
 
+## [1.0.3] - 2026-08-08
+
+### Added
+
+- Framework-neutral persistent HTTP session support backed by the existing
+  `CacheInterface`, including Laravel cache integration and a configurable
+  `GAME_LOOKUP_SESSION_TTL`.
+- `SessionAwareHttpClientInterface` for providers that can safely reuse a
+  verified upstream session across unique player lookups.
+- Recovery tests for warm, cold, and expired Garena session flows.
+
+### Changed
+
+- Garena skips its login-page preflight when a verified Shop2Game session is
+  available, while automatically restoring the complete cold flow if that
+  session becomes stale.
+- The shared cURL client reuses its handle within a lookup, preserving HTTP
+  connections across Garena's preflight, challenge, and retry requests.
+- Domain-scoped cookies and warm-session state can now survive separate package
+  instances when a persistent cache implementation is supplied.
+
+### Fixed
+
+- Removed the redundant `curl_close()` call that is deprecated in PHP 8.5.
+- Kept stale-session recovery and provider fallback intact while reducing
+  first-time latency for later unique Free Fire UIDs.
+
 ## [1.0.2]
 
 ### Added

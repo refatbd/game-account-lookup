@@ -14,6 +14,8 @@ return [
         'store' => env('GAME_LOOKUP_CACHE_STORE'),
     ],
 
+    'session_ttl' => (int) env('GAME_LOOKUP_SESSION_TTL', 1800),
+
     /*
      * Add or override game definitions from your application.
      *

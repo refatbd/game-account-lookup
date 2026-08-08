@@ -16,13 +16,16 @@ Creates an instance with the bundled providers.
 | `debug` | bool | `false` | Include sanitized provider metadata where supported |
 | `cache` | `CacheInterface` | `NullCache` | Successful-result cache |
 | `cache_ttl` | int | `300` | Cache lifetime in seconds |
+| `session_cache` | `CacheInterface` | Same as `cache` | Persistent provider HTTP-session cache |
+| `session_ttl` | int | `1800` | Provider session lifetime in seconds |
 | `logger` | callable|null | `null` | Transport log callback |
 
 ### `check(string $game, string|int $playerId, string|int|null $zoneId = null, ?array $providerOrder = null, bool $bypassCache = false): LookupResult`
 
 Resolves an alias, validates input, optionally checks cache and tries providers
 in order. `bypassCache: true` skips both cache reads and cache writes for that
-request.
+request. It does not disable provider-session continuity, which is transport
+state rather than a cached player result.
 
 ```php
 $result = $lookup->check('pubgm', '123456789');
@@ -145,6 +148,13 @@ public function forget(string $key): void;
 
 Used by provider adapters so response parsing can be tested without network calls. See [`src/Contracts/HttpClientInterface.php`](../src/Contracts/HttpClientInterface.php).
 
+### `SessionAwareHttpClientInterface`
+
+Extends `HttpClientInterface` with warm-session detection, marking, and
+invalidation. The bundled client implements it with domain-scoped cookies and
+the optional `session_cache`; providers without persistent-session needs can
+continue depending only on `HttpClientInterface`.
+
 ## Laravel configuration
 
 Published file: `config/game-account-lookup.php`
@@ -158,6 +168,7 @@ Published file: `config/game-account-lookup.php`
 | `GAME_LOOKUP_CACHE` | `true` |
 | `GAME_LOOKUP_CACHE_TTL` | `300` |
 | `GAME_LOOKUP_CACHE_STORE` | framework default |
+| `GAME_LOOKUP_SESSION_TTL` | `1800` |
 
 Facade class: `Refatbd\GameAccountLookup\Laravel\Facades\GameAccountLookup`.
 

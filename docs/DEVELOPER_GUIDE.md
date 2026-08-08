@@ -79,6 +79,8 @@ $lookup = GameAccountLookup::make([
     'debug' => false,
     'cache' => $persistentCache,
     'cache_ttl' => 600,
+    'session_cache' => $persistentCache,
+    'session_ttl' => 1800,
 ]);
 ```
 

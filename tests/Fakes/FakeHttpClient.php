@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Refatbd\GameAccountLookup\Tests\Fakes;
 
-use Refatbd\GameAccountLookup\Contracts\HttpClientInterface;
+use Refatbd\GameAccountLookup\Contracts\SessionAwareHttpClientInterface;
 use Refatbd\GameAccountLookup\Http\HttpResponse;
 use RuntimeException;
 
-final class FakeHttpClient implements HttpClientInterface
+final class FakeHttpClient implements SessionAwareHttpClientInterface
 {
     /** @var list<HttpResponse> */
     private array $responses;
@@ -17,6 +17,10 @@ final class FakeHttpClient implements HttpClientInterface
     public array $requests = [];
 
     public int $cookieResets = 0;
+
+    public bool $warmSession = false;
+
+    public int $sessionForgets = 0;
 
     public function __construct(HttpResponse ...$responses)
     {
@@ -47,6 +51,22 @@ final class FakeHttpClient implements HttpClientInterface
     public function clearCookies(): void
     {
         $this->cookieResets++;
+    }
+
+    public function hasWarmSession(string $url): bool
+    {
+        return $this->warmSession;
+    }
+
+    public function markSessionWarm(string $url): void
+    {
+        $this->warmSession = true;
+    }
+
+    public function forgetSession(string $url): void
+    {
+        $this->warmSession = false;
+        $this->sessionForgets++;
     }
 
     private function next(): HttpResponse
